@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(pointgrey_camera_driver)
+project(pointgrey_camera_driver_sync)
 
 find_package(catkin REQUIRED COMPONENTS
   camera_info_manager diagnostic_updater dynamic_reconfigure

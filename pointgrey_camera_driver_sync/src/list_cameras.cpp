@@ -47,7 +47,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <flycapture/FlyCapture2.h>
 #include <iostream>
 #include <string>
-#include "pointgrey_camera_driver/PointGreyCamera.h"
+#include "pointgrey_camera_driver_sync/PointGreyCamera.h"
 
 using namespace FlyCapture2;
 

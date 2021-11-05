@@ -39,7 +39,7 @@ int main(int argc, char **argv)
   nodelet::M_string remap(ros::names::getRemappings());
   nodelet::V_string nargv;
   std::string nodelet_name = ros::this_node::getName();
-  nodelet.load(nodelet_name, "pointgrey_camera_driver/PointGreyCameraNodelet", remap, nargv);
+  nodelet.load(nodelet_name, "pointgrey_camera_driver_sync/PointGreyCameraNodelet", remap, nargv);
 
   ros::spin();
 

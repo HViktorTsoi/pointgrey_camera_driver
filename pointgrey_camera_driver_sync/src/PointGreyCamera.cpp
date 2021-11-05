@@ -29,7 +29,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
    @attention Carnegie Mellon University
 */
 
-#include "pointgrey_camera_driver/PointGreyCamera.h"
+#include "pointgrey_camera_driver_sync/PointGreyCamera.h"
 
 #include <iostream>
 #include <sstream>
@@ -48,7 +48,7 @@ PointGreyCamera::~PointGreyCamera()
 {
 }
 
-bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConfig &config, const uint32_t &level)
+bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver_sync::PointGreyConfig &config, const uint32_t &level)
 {
   if(!cam_.IsConnected())
   {
@@ -145,8 +145,8 @@ bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConf
   // Set trigger
   switch (config.trigger_polarity)
   {
-    case pointgrey_camera_driver::PointGrey_Low:
-    case pointgrey_camera_driver::PointGrey_High:
+    case pointgrey_camera_driver_sync::PointGrey_Low:
+    case pointgrey_camera_driver_sync::PointGrey_High:
       {
       bool temp = config.trigger_polarity;
       retVal &= PointGreyCamera::setExternalTrigger(config.enable_trigger, config.trigger_mode, config.trigger_source, config.trigger_parameter, config.trigger_delay, temp);
@@ -160,11 +160,11 @@ bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConf
   // Set strobe
   switch (config.strobe1_polarity)
   {
-    case pointgrey_camera_driver::PointGrey_Low:
-    case pointgrey_camera_driver::PointGrey_High:
+    case pointgrey_camera_driver_sync::PointGrey_Low:
+    case pointgrey_camera_driver_sync::PointGrey_High:
       {
       bool temp = config.strobe1_polarity;
-      retVal &= PointGreyCamera::setExternalStrobe(config.enable_strobe1, pointgrey_camera_driver::PointGrey_GPIO1, config.strobe1_duration, config.strobe1_delay, temp);
+      retVal &= PointGreyCamera::setExternalStrobe(config.enable_strobe1, pointgrey_camera_driver_sync::PointGrey_GPIO1, config.strobe1_duration, config.strobe1_delay, temp);
       config.strobe1_polarity = temp;
       }
       break;
@@ -175,11 +175,11 @@ bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConf
 
   switch (config.strobe2_polarity)
   {
-    case pointgrey_camera_driver::PointGrey_Low:
-    case pointgrey_camera_driver::PointGrey_High:
+    case pointgrey_camera_driver_sync::PointGrey_Low:
+    case pointgrey_camera_driver_sync::PointGrey_High:
       {
       bool temp = config.strobe2_polarity;
-      retVal &= PointGreyCamera::setExternalStrobe(config.enable_strobe2, pointgrey_camera_driver::PointGrey_GPIO2, config.strobe2_duration, config.strobe2_delay, temp);
+      retVal &= PointGreyCamera::setExternalStrobe(config.enable_strobe2, pointgrey_camera_driver_sync::PointGrey_GPIO2, config.strobe2_duration, config.strobe2_delay, temp);
       config.strobe2_polarity = temp;
       }
       break;

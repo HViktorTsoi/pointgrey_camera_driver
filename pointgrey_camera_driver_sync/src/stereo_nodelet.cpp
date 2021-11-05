@@ -33,7 +33,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include <pluginlib/class_list_macros.h>
 #include <nodelet/nodelet.h>
 
-#include "pointgrey_camera_driver/PointGreyCamera.h" // The actual standalone library for the PointGreys
+#include "pointgrey_camera_driver_sync/PointGreyCamera.h" // The actual standalone library for the PointGreys
 
 #include <image_transport/image_transport.h> // ROS library that allows sending compressed images
 #include <camera_info_manager/camera_info_manager.h> // ROS library that publishes CameraInfo topics
@@ -50,7 +50,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 #include <dynamic_reconfigure/server.h> // Needed for the dynamic_reconfigure gui service to run
 
-namespace pointgrey_camera_driver
+namespace pointgrey_camera_driver_sync
 {
 
 class PointGreyStereoCameraNodelet: public nodelet::Nodelet
@@ -73,7 +73,7 @@ private:
   * \param config  camera_library::CameraConfig object passed by reference.  Values will be changed to those the driver is currently using.
   * \param level driver_base reconfiguration level.  See driver_base/SensorLevels.h for more information.
   */
-  void paramCallback(pointgrey_camera_driver::PointGreyConfig &config, uint32_t level)
+  void paramCallback(pointgrey_camera_driver_sync::PointGreyConfig &config, uint32_t level)
   {
 
     // Stereo is only active in this mode (16 bits, 8 for each image)
@@ -187,8 +187,8 @@ private:
     }
 
     // Start up the dynamic_reconfigure service, note that this needs to stick around after this function ends
-    srv_ = boost::make_shared <dynamic_reconfigure::Server<pointgrey_camera_driver::PointGreyConfig> > (pnh);
-    dynamic_reconfigure::Server<pointgrey_camera_driver::PointGreyConfig>::CallbackType f =  boost::bind(&pointgrey_camera_driver::PointGreyStereoCameraNodelet::paramCallback, this, _1, _2);
+    srv_ = boost::make_shared <dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig> > (pnh);
+    dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig>::CallbackType f =  boost::bind(&pointgrey_camera_driver_sync::PointGreyStereoCameraNodelet::paramCallback, this, _1, _2);
     srv_->setCallback(f);
 
     // Start the camera info manager and attempt to load any configurations
@@ -217,7 +217,7 @@ private:
     temp_pub_ = nh.advertise<std_msgs::Float64>("temp", 5);
 
     // Subscribe to gain and white balance changes
-    sub_ = nh.subscribe("image_exposure_sequence", 10, &pointgrey_camera_driver::PointGreyStereoCameraNodelet::gainWBCallback, this);
+    sub_ = nh.subscribe("image_exposure_sequence", 10, &pointgrey_camera_driver_sync::PointGreyStereoCameraNodelet::gainWBCallback, this);
 
     volatile bool started = false;
     while(!started)
@@ -228,7 +228,7 @@ private:
         pg_.start();
         started = true;
         // Start the thread to loop through and publish messages
-        pubThread_ = boost::shared_ptr< boost::thread > (new boost::thread(boost::bind(&pointgrey_camera_driver::PointGreyStereoCameraNodelet::devicePoll, this)));
+        pubThread_ = boost::shared_ptr< boost::thread > (new boost::thread(boost::bind(&pointgrey_camera_driver_sync::PointGreyStereoCameraNodelet::devicePoll, this)));
       }
       catch(std::runtime_error& e)
       {
@@ -341,7 +341,7 @@ private:
     }
   }
 
-  boost::shared_ptr<dynamic_reconfigure::Server<pointgrey_camera_driver::PointGreyConfig> > srv_; ///< Needed to initialize and keep the dynamic_reconfigure::Server in scope.
+  boost::shared_ptr<dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig> > srv_; ///< Needed to initialize and keep the dynamic_reconfigure::Server in scope.
   boost::shared_ptr<image_transport::ImageTransport> it_; ///< Needed to initialize and keep the ImageTransport in scope.
   boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_; ///< Needed to initialize and keep the CameraInfoManager in scope.
   image_transport::CameraPublisher it_pub_; ///< CameraInfoManager ROS publisher
@@ -378,5 +378,5 @@ private:
   bool do_rectify_; ///< Whether or not to rectify as if part of an image.  Set to false if whole image, and true if in ROI mode.
 };
 
-PLUGINLIB_EXPORT_CLASS(pointgrey_camera_driver::PointGreyStereoCameraNodelet, nodelet::Nodelet)  // Needed for Nodelet declaration
+PLUGINLIB_EXPORT_CLASS(pointgrey_camera_driver_sync::PointGreyStereoCameraNodelet, nodelet::Nodelet)  // Needed for Nodelet declaration
 }
