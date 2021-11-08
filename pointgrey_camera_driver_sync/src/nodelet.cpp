@@ -64,13 +64,6 @@ public:
 
   ~PointGreyCameraNodelet()
   {
-    boost::mutex::scoped_lock scopedLock(connect_mutex_);
-
-    if(pubThread_)
-    {
-      pubThread_->interrupt();
-      pubThread_->join();
-
       try
       {
         NODELET_DEBUG("Stopping camera capture.");
@@ -82,7 +75,6 @@ public:
       {
         NODELET_ERROR("%s", e.what());
       }
-    }
   }
 
 private:
@@ -161,50 +153,6 @@ private:
   void connectCb()
   {
     NODELET_DEBUG("Connect callback!");
-    boost::mutex::scoped_lock scopedLock(connect_mutex_); // Grab the mutex.  Wait until we're done initializing before letting this function through.
-    // Check if we should disconnect (there are 0 subscribers to our data)
-    if(it_pub_.getNumSubscribers() == 0 && pub_->getPublisher().getNumSubscribers() == 0)
-    {
-      if (pubThread_)
-      {
-        NODELET_DEBUG("Disconnecting.");
-        pubThread_->interrupt();
-        scopedLock.unlock();
-        pubThread_->join();
-        scopedLock.lock();
-        pubThread_.reset();
-        sub_.shutdown();
-
-        try
-        {
-          NODELET_DEBUG("Stopping camera capture.");
-          pg_.stop();
-        }
-        catch(std::runtime_error& e)
-        {
-          NODELET_ERROR("%s", e.what());
-        }
-
-        try
-        {
-          NODELET_DEBUG("Disconnecting from camera.");
-          pg_.disconnect();
-        }
-        catch(std::runtime_error& e)
-        {
-          NODELET_ERROR("%s", e.what());
-        }
-      }
-    }
-    else if(!pubThread_)     // We need to connect
-    {
-      // Start the thread to loop through and publish messages
-      pubThread_.reset(new boost::thread(boost::bind(&pointgrey_camera_driver_sync::PointGreyCameraNodelet::devicePoll, this)));
-    }
-    else
-    {
-      NODELET_DEBUG("Do nothing in callback.");
-    }
   }
 
   /*!
@@ -272,7 +220,6 @@ private:
     // Get the desired frame_id, set to 'camera' if not found
     pnh.param<std::string>("frame_id", frame_id_, "camera");
     // Do not call the connectCb function until after we are done initializing.
-    boost::mutex::scoped_lock scopedLock(connect_mutex_);
 
     // Start up the dynamic_reconfigure service, note that this needs to stick around after this function ends
     srv_ = boost::make_shared <dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig> > (pnh);
@@ -313,6 +260,9 @@ private:
                updater_,
                diagnostic_updater::FrequencyStatusParam(&min_freq_, &max_freq_, freq_tolerance, window_size),
                diagnostic_updater::TimeStampStatusParam(min_acceptable, max_acceptable)));
+
+      // Start the thread to loop through and publish messages
+      pubThread_ = boost::shared_ptr< boost::thread > (new boost::thread(boost::bind(&pointgrey_camera_driver_sync::PointGreyCameraNodelet::devicePoll, this)));
   }
 
   /**
@@ -380,7 +330,6 @@ private:
 #if STOP_ON_ERROR
           // Try stopping the camera
           {
-            boost::mutex::scoped_lock scopedLock(connect_mutex_);
             sub_.shutdown();
           }
 
@@ -446,7 +395,6 @@ private:
 
             // Subscribe to gain and white balance changes
             {
-              boost::mutex::scoped_lock scopedLock(connect_mutex_);
               sub_ = getMTNodeHandle().subscribe("image_exposure_sequence", 10, &pointgrey_camera_driver_sync::PointGreyCameraNodelet::gainWBCallback, this);
             }
 
@@ -487,28 +435,12 @@ private:
 
 //            auto start = std::chrono::system_clock::now();
             pg_.grabImage(wfov_image->image, frame_id_);
-//            auto end   = std::chrono::system_clock::now();
-//            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+//            auto time_after_capture = ros::Time().now().toSec();
+//
+//              auto end   = std::chrono::system_clock::now();
+//              auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 //            ROS_WARN("Grab time: %lf %s", double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den, frame_id_.c_str());
-//            ROS_INFO_THROTTLE(1, "Grab time: %lf", double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den);
 
-
-              // check interruption_requested, or the thread will hang while exiting
-//              double wait_time = 0;
-//              while (camera_time_.empty() && !boost::this_thread::interruption_requested()) {
-////                  std::cout << state << std::endl;
-//                  ros::Duration(0.001).sleep();
-//                  wait_time += 0.001;
-////                  std::cout << state << std::endl;
-//                  ROS_WARN_THROTTLE(0.1,"***Wait for the trigger***");
-//                  // 这里假定快门触发频率为30Hz
-//                  if(wait_time > 0.5 * (1.0/30)){
-//                  while (!camera_time_.empty())
-//                      camera_time_.pop();
-//                  }
-//                  ROS_WARN("***Wait too long, drop drame and timestamp***");
-//                  break;
-//              }
               // 正常时间戳肯定先于图像到达 如果有等待的现象 则一定会出现时间戳错位 直接丢掉图像
               // TODO 为了更鲁棒的接收数据 这里最好估计一个时间戳并发布图像
               if(camera_time_.empty()){
@@ -525,8 +457,10 @@ private:
                   camera_time_.pop();
                   if (!camera_time_.empty()) {
                       // 处理由于读取帧时间太长导致的时间戳堆积问题, 此时的表现为时间戳队列大于1
-                      ROS_WARN_THROTTLE(1, "Abnormal Q size caused by frame delay, camera_time_.size() = %d @%s\n",
+                      ROS_WARN("Abnormal Q size caused by frame delay, camera_time_.size() = %d @%s\n",
                                camera_time_.size(), frame_id_.c_str());
+//                      ROS_WARN_THROTTLE(1, "Abnormal Q size caused by frame delay, camera_time_.size() = %d @%s\n",
+//                               camera_time_.size(), frame_id_.c_str());
                   }
 //                  ROS_INFO_THROTTLE(1,
 //                                    "camera_time_.size() = %ld \n Trigger time: %d.%d  Recv at: %d.%d",
@@ -573,15 +507,14 @@ private:
 
             wfov_image->info = *ci_;
 
-            // Publish the full message
-            pub_->publish(wfov_image);
+            sensor_msgs::ImagePtr image(new sensor_msgs::Image(wfov_image->image));
+            it_pub_.publish(image, ci_);
 
-            // Publish the message using standard image transport
-            if(it_pub_.getNumSubscribers() > 0)
-            {
-              sensor_msgs::ImagePtr image(new sensor_msgs::Image(wfov_image->image));
-              it_pub_.publish(image, ci_);
-            }
+//            end   = std::chrono::system_clock::now();
+//            duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+//            ROS_WARN_THROTTLE(0.5, "Grab and processing time: %lf", double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den);
+//              ROS_WARN_THROTTLE(0.5, "DT: %f After Capture Time: %f, timestamp receive time: %f, timestamp: %f",
+//                                time_after_capture - camera_time.header.stamp.toSec(), time_after_capture, camera_time.header.stamp.toSec(), camera_time.time_ref.toSec());
           }
           catch(CameraTimeoutException& e)
           {
@@ -610,15 +543,11 @@ private:
   }
 
     void cameraTimeCallback(const sensor_msgs::TimeReference::ConstPtr &camera_time_stamp) {
-        // 只有发布图像的时候才接收时间戳, 防止时间戳累计造成时钟漂移
-        if(pubThread_){
-            // put the data to queue
-            camera_time_.push(*camera_time_stamp);
-        }
-        else{
-            while (!camera_time_.empty())
-                camera_time_.pop();
-        }
+        // TODO 只有发布图像的时候才接收时间戳, 防止时间戳累计造成时钟漂移
+        // put the data to queue
+        camera_time_.push(*camera_time_stamp);
+//        while (!camera_time_.empty())
+//            camera_time_.pop();
     }
 
   void gainWBCallback(const image_exposure_msgs::ExposureSequence &msg)
@@ -644,8 +573,6 @@ private:
   image_transport::CameraPublisher it_pub_; ///< CameraInfoManager ROS publisher
   boost::shared_ptr<diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage> > pub_; ///< Diagnosed publisher, has to be a pointer because of constructor requirements
   ros::Subscriber sub_; ///< Subscriber for gain and white balance changes.
-
-  boost::mutex connect_mutex_;
 
   diagnostic_updater::Updater updater_; ///< Handles publishing diagnostics messages.
   double min_freq_;
