@@ -33,7 +33,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include <pluginlib/class_list_macros.h>
 #include <nodelet/nodelet.h>
 
-#include "pointgrey_camera_driver/PointGreyCamera.h" // The actual standalone library for the PointGreys
+#include "pointgrey_camera_driver_sync/PointGreyCamera.h" // The actual standalone library for the PointGreys
 
 #include <image_transport/image_transport.h> // ROS library that allows sending compressed images
 #include <camera_info_manager/camera_info_manager.h> // ROS library that publishes CameraInfo topics
@@ -51,7 +51,10 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 #include <fstream>
 
-namespace pointgrey_camera_driver
+#include <chrono>
+#include <sensor_msgs/TimeReference.h>
+
+namespace pointgrey_camera_driver_sync
 {
 
 class PointGreyCameraNodelet: public nodelet::Nodelet
@@ -90,7 +93,7 @@ private:
   * \param config  camera_library::CameraConfig object passed by reference.  Values will be changed to those the driver is currently using.
   * \param level driver_base reconfiguration level.  See driver_base/SensorLevels.h for more information.
   */
-  void paramCallback(pointgrey_camera_driver::PointGreyConfig &config, uint32_t level)
+  void paramCallback(pointgrey_camera_driver_sync::PointGreyConfig &config, uint32_t level)
   {
     config_ = config;
 
@@ -196,7 +199,7 @@ private:
     else if(!pubThread_)     // We need to connect
     {
       // Start the thread to loop through and publish messages
-      pubThread_.reset(new boost::thread(boost::bind(&pointgrey_camera_driver::PointGreyCameraNodelet::devicePoll, this)));
+      pubThread_.reset(new boost::thread(boost::bind(&pointgrey_camera_driver_sync::PointGreyCameraNodelet::devicePoll, this)));
     }
     else
     {
@@ -272,9 +275,9 @@ private:
     boost::mutex::scoped_lock scopedLock(connect_mutex_);
 
     // Start up the dynamic_reconfigure service, note that this needs to stick around after this function ends
-    srv_ = boost::make_shared <dynamic_reconfigure::Server<pointgrey_camera_driver::PointGreyConfig> > (pnh);
-    dynamic_reconfigure::Server<pointgrey_camera_driver::PointGreyConfig>::CallbackType f =
-      boost::bind(&pointgrey_camera_driver::PointGreyCameraNodelet::paramCallback, this, _1, _2);
+    srv_ = boost::make_shared <dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig> > (pnh);
+    dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig>::CallbackType f =
+      boost::bind(&pointgrey_camera_driver_sync::PointGreyCameraNodelet::paramCallback, this, _1, _2);
     srv_->setCallback(f);
 
     // Start the camera info manager and attempt to load any configurations
@@ -286,6 +289,8 @@ private:
     it_.reset(new image_transport::ImageTransport(nh));
     image_transport::SubscriberStatusCallback cb = boost::bind(&PointGreyCameraNodelet::connectCb, this);
     it_pub_ = it_->advertiseCamera("image_raw", 5, cb, cb);
+
+    camera_time_sub_ = nh.subscribe("/imu/trigger_time", 1, &pointgrey_camera_driver_sync::PointGreyCameraNodelet::cameraTimeCallback, this);
 
     // Set up diagnostics
     updater_.setHardwareID("pointgrey_camera " + cinfo_name.str());
@@ -442,7 +447,7 @@ private:
             // Subscribe to gain and white balance changes
             {
               boost::mutex::scoped_lock scopedLock(connect_mutex_);
-              sub_ = getMTNodeHandle().subscribe("image_exposure_sequence", 10, &pointgrey_camera_driver::PointGreyCameraNodelet::gainWBCallback, this);
+              sub_ = getMTNodeHandle().subscribe("image_exposure_sequence", 10, &pointgrey_camera_driver_sync::PointGreyCameraNodelet::gainWBCallback, this);
             }
 
             state = CONNECTED;
@@ -479,20 +484,79 @@ private:
             wfov_camera_msgs::WFOVImagePtr wfov_image(new wfov_camera_msgs::WFOVImage);
             // Get the image from the camera library
             NODELET_DEBUG("Starting a new grab from camera.");
+
+//            auto start = std::chrono::system_clock::now();
             pg_.grabImage(wfov_image->image, frame_id_);
+//            auto end   = std::chrono::system_clock::now();
+//            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+//            ROS_WARN("Grab time: %lf %s", double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den, frame_id_.c_str());
+//            ROS_INFO_THROTTLE(1, "Grab time: %lf", double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den);
 
-            // Set other values
-            wfov_image->header.frame_id = frame_id_;
 
-            wfov_image->gain = gain_;
-            wfov_image->white_balance_blue = wb_blue_;
-            wfov_image->white_balance_red = wb_red_;
+              // check interruption_requested, or the thread will hang while exiting
+//              double wait_time = 0;
+//              while (camera_time_.empty() && !boost::this_thread::interruption_requested()) {
+////                  std::cout << state << std::endl;
+//                  ros::Duration(0.001).sleep();
+//                  wait_time += 0.001;
+////                  std::cout << state << std::endl;
+//                  ROS_WARN_THROTTLE(0.1,"***Wait for the trigger***");
+//                  // 这里假定快门触发频率为30Hz
+//                  if(wait_time > 0.5 * (1.0/30)){
+//                  while (!camera_time_.empty())
+//                      camera_time_.pop();
+//                  }
+//                  ROS_WARN("***Wait too long, drop drame and timestamp***");
+//                  break;
+//              }
+              // 正常时间戳肯定先于图像到达 如果有等待的现象 则一定会出现时间戳错位 直接丢掉图像
+              // TODO 为了更鲁棒的接收数据 这里最好估计一个时间戳并发布图像
+              if(camera_time_.empty()){
+                  ROS_WARN("***No available timestamp, drop frame***");
+                  break;
+              }
 
-            wfov_image->temperature = pg_.getCameraTemperature();
+              //Try to use the trigger
+              sensor_msgs::TimeReference camera_time;
+              int queue_size = camera_time_.size();
+              if (queue_size <= 2) {
+                  // 正常读取
+                  camera_time = camera_time_.front();
+                  camera_time_.pop();
+                  if (!camera_time_.empty()) {
+                      // 处理由于读取帧时间太长导致的时间戳堆积问题, 此时的表现为时间戳队列大于1
+                      ROS_WARN_THROTTLE(1, "Abnormal Q size caused by frame delay, camera_time_.size() = %d @%s\n",
+                               camera_time_.size(), frame_id_.c_str());
+                  }
+//                  ROS_INFO_THROTTLE(1,
+//                                    "camera_time_.size() = %ld \n Trigger time: %d.%d  Recv at: %d.%d",
+//                                    , camera_time_.size(), camera_time.time_ref.sec,
+//                                    camera_time.time_ref.nsec,
+//                                    camera_time.header.stamp.sec, camera_time.header.stamp.nsec);
+              } else {
+                  ROS_WARN("Large Q size, camera_time_.size() = %d @%s", camera_time_.size(), frame_id_.c_str());
+                  ROS_WARN("Q_front = %d.%d, received at %d.%d",
+                           camera_time_.front().time_ref.sec, camera_time_.front().time_ref.nsec,
+                           camera_time_.front().header.stamp.sec, camera_time_.front().header.stamp.nsec);
+                  ROS_WARN("Q_back = %d.%d, received at %d.%d",
+                           camera_time_.back().time_ref.sec, camera_time_.back().time_ref.nsec,
+                           camera_time_.back().header.stamp.sec, camera_time_.back().header.stamp.nsec);
+                  ROS_WARN("Resetting timestamp Q....");
+                  // 多帧时间堆积, 此时可能是相机卡住, 需要清空时间戳队列
+                  camera_time = camera_time_.back();
+                  while (!camera_time_.empty())
+                      camera_time_.pop();
+              }
 
-            ros::Time time = ros::Time::now();
-            wfov_image->header.stamp = time;
-            wfov_image->image.header.stamp = time;
+              // Set other values
+              wfov_image->header.frame_id = frame_id_;
+              wfov_image->header.stamp = camera_time.time_ref;
+              wfov_image->image.header.stamp = camera_time.time_ref;
+
+              wfov_image->gain = gain_;
+              wfov_image->white_balance_blue = wb_blue_;
+              wfov_image->white_balance_red = wb_red_;
+              wfov_image->temperature = pg_.getCameraTemperature();
 
             // Set the CameraInfo message
             ci_.reset(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
@@ -545,6 +609,18 @@ private:
     NODELET_DEBUG("Leaving thread.");
   }
 
+    void cameraTimeCallback(const sensor_msgs::TimeReference::ConstPtr &camera_time_stamp) {
+        // 只有发布图像的时候才接收时间戳, 防止时间戳累计造成时钟漂移
+        if(pubThread_){
+            // put the data to queue
+            camera_time_.push(*camera_time_stamp);
+        }
+        else{
+            while (!camera_time_.empty())
+                camera_time_.pop();
+        }
+    }
+
   void gainWBCallback(const image_exposure_msgs::ExposureSequence &msg)
   {
     try
@@ -562,7 +638,7 @@ private:
     }
   }
 
-  boost::shared_ptr<dynamic_reconfigure::Server<pointgrey_camera_driver::PointGreyConfig> > srv_; ///< Needed to initialize and keep the dynamic_reconfigure::Server in scope.
+  boost::shared_ptr<dynamic_reconfigure::Server<pointgrey_camera_driver_sync::PointGreyConfig> > srv_; ///< Needed to initialize and keep the dynamic_reconfigure::Server in scope.
   boost::shared_ptr<image_transport::ImageTransport> it_; ///< Needed to initialize and keep the ImageTransport in scope.
   boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_; ///< Needed to initialize and keep the CameraInfoManager in scope.
   image_transport::CameraPublisher it_pub_; ///< CameraInfoManager ROS publisher
@@ -601,9 +677,12 @@ private:
   /// GigE packet delay:
   int packet_delay_;
 
+    //Trigger
+  std::queue<sensor_msgs::TimeReference> camera_time_;
+  ros::Subscriber camera_time_sub_; ///
   /// Configuration:
-  pointgrey_camera_driver::PointGreyConfig config_;
+  pointgrey_camera_driver_sync::PointGreyConfig config_;
 };
 
-PLUGINLIB_EXPORT_CLASS(pointgrey_camera_driver::PointGreyCameraNodelet, nodelet::Nodelet)  // Needed for Nodelet declaration
+PLUGINLIB_EXPORT_CLASS(pointgrey_camera_driver_sync::PointGreyCameraNodelet, nodelet::Nodelet)  // Needed for Nodelet declaration
 }
