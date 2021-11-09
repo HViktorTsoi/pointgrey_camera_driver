@@ -1,8 +1,5 @@
 <launch>
 
-  <!-- sync publisher-->
-  <node pkg="pointgrey_camera_driver_sync" type="clock_source.py" name="clock_source"/>
-
   <!-- Common parameters -->
   <arg name="camera_name" default="camera" />
 
@@ -12,7 +9,6 @@
   <arg name="right_camera_serial" default="20291652" />
   <arg name="right_camera_calibrated" default="0" />
 
-  <arg name="frame_rate" default="25" />
   <arg name="enable_trigger" default="True" />
   <arg name="trigger_mode" default="mode14" />
   <arg name="shutter_speed" default="0.005" />
@@ -37,7 +33,6 @@
         <param name="auto_shutter" value="False" />
         <param name="shutter_speed" value="$(arg shutter_speed)" />
 
-        <param name="frame_rate" value="$(arg frame_rate)" />
         <param name="enable_trigger" value="$(arg enable_trigger)" />
         <param name="trigger_mode" value="$(arg trigger_mode)" />
 
@@ -66,7 +61,6 @@
         <param name="auto_shutter" value="False" />
         <param name="shutter_speed" value="$(arg shutter_speed)" />
 
-        <param name="frame_rate" value="$(arg frame_rate)" />
         <param name="enable_trigger" value="$(arg enable_trigger)" />
         <param name="trigger_mode" value="$(arg trigger_mode)" />
 

@@ -5,9 +5,6 @@
   <arg name="camera_serial" default="0" />
   <arg name="calibrated" default="0" />
 
-  <!-- sync publisher-->
-  <node pkg="pointgrey_camera_driver_sync" type="clock_source.py" name="clock_source"/>
-
   <group ns="$(arg camera_name)">
     <node pkg="nodelet" type="nodelet" name="camera_nodelet_manager" args="manager" />
 
